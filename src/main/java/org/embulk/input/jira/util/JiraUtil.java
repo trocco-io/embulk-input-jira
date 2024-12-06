@@ -207,6 +207,7 @@ public final class JiraUtil
             }
 
             @Override
+            @SuppressWarnings("deprecation") // TODO: For compatibility with Embulk v0.9
             public void timestampColumn(final Column column)
             {
                 final JsonElement data = issue.getValue(column.getName());
@@ -219,7 +220,8 @@ public final class JiraUtil
                         pageBuilder.setNull(column);
                     }
                     else {
-                        pageBuilder.setTimestamp(column, value);
+                        // TODO: Use Instant instead of Timestamp
+                        pageBuilder.setTimestamp(column, org.embulk.spi.time.Timestamp.ofInstant(value));
                     }
                 }
             }

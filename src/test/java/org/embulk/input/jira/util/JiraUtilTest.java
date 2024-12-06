@@ -256,6 +256,7 @@ public class JiraUtilTest
     }
 
     @Test
+    @SuppressWarnings("deprecation") // TODO: For compatibility with Embulk v0.9
     public void test_addRecord_allRight()
     {
         String testName = "allRight";
@@ -278,7 +279,8 @@ public class JiraUtilTest
         verify(mock, times(1)).setLong(longColumn, longValue);
         verify(mock, times(1)).setDouble(doubleColumn, doubleValue);
         verify(mock, times(1)).setString(stringColumn, stringValue);
-        verify(mock, times(1)).setTimestamp(dateColumn, dateValue);
+        // TODO: Use Instant instead of Timestamp
+        verify(mock, times(1)).setTimestamp(dateColumn, org.embulk.spi.time.Timestamp.ofInstant(dateValue));
         verify(mock, times(1)).setJson(jsonColumn, jsonValue);
     }
 

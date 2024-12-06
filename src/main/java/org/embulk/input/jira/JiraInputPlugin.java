@@ -233,9 +233,10 @@ public class JiraInputPlugin
     }
 
     @VisibleForTesting
+    @SuppressWarnings("deprecation") // TODO: For compatibility with Embulk v0.9
     public PageBuilder getPageBuilder(final Schema schema, final PageOutput output)
     {
-        return Exec.getPageBuilder(Exec.getBufferAllocator(), schema, output);
+        return new PageBuilder(Exec.getBufferAllocator(), schema, output); // TODO: Use Exec#getPageBuilder
     }
 
     @VisibleForTesting
