@@ -3,17 +3,25 @@ plugins {
     id "checkstyle"
     id "jacoco"
     id "org.embulk.embulk-plugins" version "0.4.2"
-    id "maven"
-    id 'maven-publish'
-    id "signing"
+    id "com.palantir.git-version" version "3.0.0"
+//  id "maven"
+//  id 'maven-publish'
+//  id "signing"
 }
 
 repositories {
     mavenCentral()
 }
 
-version = "0.3.1"
-group = "com.treasuredata.embulk.plugins"
+group = "trocco-io"
+version = {
+    def vd = versionDetails()
+    if (vd.commitDistance == 0 && vd.lastTag ==~ /^[0-9]+\.[0-9]+\.[0-9]+([.-][.a-zA-Z0-9-]+)?/) {
+        vd.lastTag
+    } else {
+        "0.0.0.${vd.gitHash}"
+    }
+}()
 description = "JIRA Embulk input plugin."
 
 sourceCompatibility = 1.8
@@ -126,7 +134,7 @@ javadocJar {
 tasks.withType(GenerateModuleMetadata) {
     enabled = false
 }
-
+/*
 publishing {
     publications {
         maven(MavenPublication) {
@@ -197,7 +205,7 @@ publishing {
 signing {
     sign publishing.publications.maven
 }
-
+*/
 jacocoTestReport {
     group = "Reporting"
     reports {
@@ -214,7 +222,8 @@ gem {
     homepage = 'https://github.com/treasure-data/embulk-input-jira'
     licenses = ['Apache-2.0']
 }
-
+/*
 gemPush {
     host = "https://rubygems.org"
 }
+*/
