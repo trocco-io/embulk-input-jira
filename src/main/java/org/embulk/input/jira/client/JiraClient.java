@@ -6,7 +6,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-
 import org.apache.http.HttpStatus;
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
@@ -23,8 +22,9 @@ import org.embulk.input.jira.Issue;
 import org.embulk.input.jira.JiraInputPlugin.PluginTask;
 import org.embulk.input.jira.util.JiraException;
 import org.embulk.input.jira.util.JiraUtil;
-import org.embulk.spi.util.RetryExecutor.RetryGiveupException;
-import org.embulk.spi.util.RetryExecutor.Retryable;
+import org.embulk.util.retryhelper.RetryExecutor;
+import org.embulk.util.retryhelper.RetryGiveupException;
+import org.embulk.util.retryhelper.Retryable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +43,6 @@ import static org.apache.http.HttpHeaders.AUTHORIZATION;
 import static org.apache.http.HttpHeaders.CONTENT_TYPE;
 import static org.embulk.input.jira.Constant.HTTP_TIMEOUT;
 import static org.embulk.input.jira.Constant.MIN_RESULTS;
-import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class JiraClient
 {
@@ -61,9 +60,7 @@ public class JiraClient
             if (e.getStatusCode() == HttpStatus.SC_UNAUTHORIZED) {
                 throw new ConfigException("Could not authorize with your credential.");
             }
-            else {
-                throw new ConfigException("Could not authorize with your credential due to problems when contacting JIRA API.");
-            }
+            throw new ConfigException("Could not authorize with your credential due to problems when contacting JIRA API.");
         }
     }
 
@@ -94,11 +91,13 @@ public class JiraClient
     private String searchJiraAPI(final PluginTask task, final int startAt, final int maxResults)
     {
         try {
-            return retryExecutor().withRetryLimit(task.getRetryLimit())
-            .withInitialRetryWait(task.getInitialRetryIntervalMillis())
-            .withMaxRetryWait(task.getMaximumRetryIntervalMillis())
-            .runInterruptible(new Retryable<String>()
-            {
+            return RetryExecutor.builder()
+                    .withRetryLimit(task.getRetryLimit())
+                    .withInitialRetryWaitMillis(task.getInitialRetryIntervalMillis())
+                    .withMaxRetryWaitMillis(task.getMaximumRetryIntervalMillis())
+                    .build()
+                    .runInterruptible(new Retryable<String>()
+                    {
                 @Override
                 public String call() throws Exception
                 {

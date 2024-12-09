@@ -1,6 +1,7 @@
 package org.embulk.input.jira.util;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
@@ -13,17 +14,18 @@ import org.embulk.config.ConfigSource;
 import org.embulk.input.jira.Issue;
 import org.embulk.input.jira.JiraInputPlugin.PluginTask;
 import org.embulk.spi.Column;
-import org.embulk.spi.ColumnConfig;
 import org.embulk.spi.ColumnVisitor;
 import org.embulk.spi.PageBuilder;
 import org.embulk.spi.Schema;
-import org.embulk.spi.json.JsonParser;
-import org.embulk.spi.time.Timestamp;
-import org.embulk.spi.time.TimestampParser;
+import org.embulk.util.config.units.ColumnConfig;
+import org.embulk.util.json.JsonParser;
+import org.embulk.util.timestamp.TimestampFormatter;
 
 import javax.ws.rs.core.UriBuilder;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -97,7 +99,7 @@ public final class JiraUtil
      * For getting the timestamp value of the node
      * Sometime if the parser could not parse the value then return null
      * */
-    private static Timestamp getTimestampValue(final PluginTask task, final Column column, final String value)
+    private static Instant getTimestampValue(final PluginTask task, final Column column, final String value)
     {
         final List<ColumnConfig> columnConfigs = task.getColumns().getColumns();
         String pattern = DEFAULT_TIMESTAMP_PATTERN;
@@ -110,14 +112,16 @@ public final class JiraUtil
                 break;
             }
         }
-        final TimestampParser parser = TimestampParser.of(pattern, "UTC");
-        Timestamp result = null;
+        final TimestampFormatter formatter = TimestampFormatter
+                .builder(pattern, true)
+                .setDefaultZoneFromString("UTC")
+                .build();
         try {
-            result = parser.parse(value);
+            return formatter.parse(value);
         }
         catch (final Exception e) {
+            return null;
         }
-        return result;
     }
 
     /*
@@ -126,13 +130,12 @@ public final class JiraUtil
      * */
     private static Long getLongValue(final JsonElement value)
     {
-        Long result = null;
         try {
-            result = value.getAsLong();
+            return value.getAsLong();
         }
         catch (final Exception e) {
+            return null;
         }
-        return result;
     }
 
     /*
@@ -141,13 +144,12 @@ public final class JiraUtil
      * */
     private static Double getDoubleValue(final JsonElement value)
     {
-        Double result = null;
         try {
-            result = value.getAsDouble();
+            return value.getAsDouble();
         }
         catch (final Exception e) {
+            return null;
         }
-        return result;
     }
 
     /*
@@ -156,13 +158,12 @@ public final class JiraUtil
      * */
     private static Boolean getBooleanValue(final JsonElement value)
     {
-        Boolean result = null;
         try {
-            result = value.getAsBoolean();
+            return value.getAsBoolean();
         }
         catch (final Exception e) {
+            return null;
         }
-        return result;
     }
 
     public static void addRecord(final Issue issue, final Schema schema, final PluginTask task, final PageBuilder pageBuilder)
@@ -196,9 +197,7 @@ public final class JiraUtil
                                 if (obj.isJsonPrimitive()) {
                                     return obj.getAsString();
                                 }
-                                else {
-                                    return obj.toString();
-                                }
+                                return obj.toString();
                             })
                             .collect(Collectors.joining(",")));
                 }
@@ -208,6 +207,7 @@ public final class JiraUtil
             }
 
             @Override
+            @SuppressWarnings("deprecation") // TODO: For compatibility with Embulk v0.9
             public void timestampColumn(final Column column)
             {
                 final JsonElement data = issue.getValue(column.getName());
@@ -215,12 +215,13 @@ public final class JiraUtil
                     pageBuilder.setNull(column);
                 }
                 else {
-                    final Timestamp value = getTimestampValue(task, column, data.getAsString());
+                    final Instant value = getTimestampValue(task, column, data.getAsString());
                     if (value == null) {
                         pageBuilder.setNull(column);
                     }
                     else {
-                        pageBuilder.setTimestamp(column, value);
+                        // TODO: Use Instant instead of Timestamp
+                        pageBuilder.setTimestamp(column, org.embulk.spi.time.Timestamp.ofInstant(value));
                     }
                 }
             }
@@ -262,5 +263,20 @@ public final class JiraUtil
             }
         });
         pageBuilder.addRecord();
+    }
+
+    public static LinkedHashMap<String, Object> toLinkedHashMap(final JsonObject flt)
+    {
+        final LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+        for (final String key : flt.keySet()) {
+            final JsonElement elem = flt.get(key);
+            if (elem.isJsonPrimitive()) {
+                result.put(key, flt.get(key).getAsString());
+            }
+            else {
+                result.put(key, elem);
+            }
+        }
+        return result;
     }
 }

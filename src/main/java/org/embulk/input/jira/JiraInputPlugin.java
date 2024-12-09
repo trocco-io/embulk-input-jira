@@ -1,35 +1,35 @@
 package org.embulk.input.jira;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
-
-import org.embulk.config.Config;
-import org.embulk.config.ConfigDefault;
 import org.embulk.config.ConfigDiff;
 import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
-import org.embulk.config.Task;
 import org.embulk.config.TaskReport;
 import org.embulk.config.TaskSource;
-import org.embulk.exec.GuessExecutor;
 import org.embulk.input.jira.client.JiraClient;
 import org.embulk.input.jira.util.JiraUtil;
-import org.embulk.spi.Buffer;
 import org.embulk.spi.Exec;
 import org.embulk.spi.InputPlugin;
 import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageOutput;
 import org.embulk.spi.Schema;
-import org.embulk.spi.SchemaConfig;
+import org.embulk.util.config.Config;
+import org.embulk.util.config.ConfigDefault;
+import org.embulk.util.config.ConfigMapper;
+import org.embulk.util.config.ConfigMapperFactory;
+import org.embulk.util.config.Task;
+import org.embulk.util.config.TaskMapper;
+import org.embulk.util.config.units.ColumnConfig;
+import org.embulk.util.config.units.SchemaConfig;
+import org.embulk.util.guess.SchemaGuess;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -37,7 +37,6 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
-import static org.embulk.input.jira.Constant.GUESS_BUFFER_SIZE;
 import static org.embulk.input.jira.Constant.GUESS_RECORDS_COUNT;
 import static org.embulk.input.jira.Constant.PREVIEW_RECORDS_COUNT;
 
@@ -45,6 +44,14 @@ public class JiraInputPlugin
         implements InputPlugin
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(JiraInputPlugin.class);
+    @VisibleForTesting
+    public static final ConfigMapperFactory CONFIG_MAPPER_FACTORY = ConfigMapperFactory
+            .builder()
+            .addDefaultModules()
+            .build();
+    @VisibleForTesting
+    public static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
+    private static final TaskMapper TASK_MAPPER = CONFIG_MAPPER_FACTORY.createTaskMapper();
 
     public interface PluginTask
             extends Task
@@ -86,6 +93,10 @@ public class JiraInputPlugin
         @ConfigDefault("[]")
         public List<String> getExpand();
 
+        @Config("dynamic_schema")
+        @ConfigDefault("false")
+        public boolean getDynamicSchema();
+
         @Config("columns")
         public SchemaConfig getColumns();
 
@@ -103,12 +114,28 @@ public class JiraInputPlugin
     public ConfigDiff transaction(final ConfigSource config,
             final InputPlugin.Control control)
     {
-        final PluginTask task = config.loadConfig(PluginTask.class);
-
-        final Schema schema = task.getColumns().toSchema();
+        final PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+        SchemaConfig schemaConfig = task.getColumns();
+        if (task.getDynamicSchema()) {
+            final JiraClient jiraClient = getJiraClient();
+            final List<ColumnConfig> columns = new ArrayList<>();
+            try {
+                final List<ConfigDiff> guessedColumns = getGuessedColumns(jiraClient, task);
+                for (final ConfigDiff guessedColumn : guessedColumns) {
+                    columns.add(new ColumnConfig(CONFIG_MAPPER_FACTORY.newConfigSource().merge(guessedColumn)));
+                }
+            }
+            catch (final ConfigException e) {
+                if (!e.getMessage().equals("Could not guess schema due to empty data set")) {
+                    throw e;
+                }
+            }
+            schemaConfig = new SchemaConfig(columns);
+        }
+        final Schema schema = schemaConfig.toSchema();
         final int taskCount = 1;
 
-        return resume(task.dump(), schema, taskCount, control);
+        return resume(task.toTaskSource(), schema, taskCount, control);
     }
 
     @Override
@@ -117,14 +144,7 @@ public class JiraInputPlugin
             final InputPlugin.Control control)
     {
         control.run(taskSource, schema, taskCount);
-        return Exec.newConfigDiff();
-    }
-
-    @Override
-    public void cleanup(final TaskSource taskSource,
-            final Schema schema, final int taskCount,
-            final List<TaskReport> successTaskReports)
-    {
+        return CONFIG_MAPPER_FACTORY.newConfigDiff();
     }
 
     @Override
@@ -132,7 +152,7 @@ public class JiraInputPlugin
             final Schema schema, final int taskIndex,
             final PageOutput output)
     {
-        final PluginTask task = taskSource.loadTask(PluginTask.class);
+        final PluginTask task = TASK_MAPPER.map(taskSource, PluginTask.class);
         JiraUtil.validateTaskConfig(task);
         final JiraClient jiraClient = getJiraClient();
         jiraClient.checkUserCredentials(task);
@@ -156,34 +176,31 @@ public class JiraInputPlugin
             }
             pageBuilder.finish();
         }
-        return Exec.newTaskReport();
+        return CONFIG_MAPPER_FACTORY.newTaskReport();
     }
 
     @Override
     public ConfigDiff guess(final ConfigSource config)
     {
         // Reset columns in case already have or missing on configuration
-        config.set("columns", new ObjectMapper().createArrayNode());
-        final PluginTask task = config.loadConfig(PluginTask.class);
+        config.set("columns", new ArrayList<>());
+        final PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
         JiraUtil.validateTaskConfig(task);
         final JiraClient jiraClient = getJiraClient();
         jiraClient.checkUserCredentials(task);
+        return CONFIG_MAPPER_FACTORY.newConfigDiff().set("columns", getGuessedColumns(jiraClient, task));
+    }
+
+    private List<ConfigDiff> getGuessedColumns(final JiraClient jiraClient, final PluginTask task)
+    {
         final List<Issue> issues = jiraClient.searchIssues(task, 0, GUESS_RECORDS_COUNT);
         if (issues.isEmpty()) {
             throw new ConfigException("Could not guess schema due to empty data set");
         }
-        final Buffer sample = Buffer.copyOf(createSamples(issues, getUniqueAttributes(issues, task.getExpandJsonOnGuess()), task.getExpandJsonOnGuess()).toString().getBytes());
-        final JsonNode columns = Exec.getInjector().getInstance(GuessExecutor.class)
-                                .guessParserConfig(sample, Exec.newConfigSource(), createGuessConfig())
-                                .get(JsonNode.class, "columns");
-        return Exec.newConfigDiff().set("columns", columns);
-    }
-
-    private ConfigSource createGuessConfig()
-    {
-        return Exec.newConfigSource()
-                    .set("guess_plugins", ImmutableList.of("jira"))
-                    .set("guess_sample_buffer_bytes", GUESS_BUFFER_SIZE);
+        final boolean expandJsonOnGuess = task.getExpandJsonOnGuess();
+        final List<ConfigDiff> columns = SchemaGuess.of(CONFIG_MAPPER_FACTORY).fromLinkedHashMapRecords(createGuessSample(issues, getUniqueAttributes(issues, expandJsonOnGuess), expandJsonOnGuess));
+        columns.forEach(conf -> conf.remove("index"));
+        return columns;
     }
 
     private SortedSet<String> getUniqueAttributes(final List<Issue> issues, final boolean expandJsonOnGuess)
@@ -197,9 +214,9 @@ public class JiraInputPlugin
         return uniqueAttributes;
     }
 
-    private JsonArray createSamples(final List<Issue> issues, final Set<String> uniqueAttributes, final boolean expandJsonOnGuess)
+    private List<LinkedHashMap<String, Object>> createGuessSample(final List<Issue> issues, final Set<String> uniqueAttributes, final boolean expandJsonOnGuess)
     {
-        final JsonArray samples = new JsonArray();
+        final List<LinkedHashMap<String, Object>> samples = new ArrayList<>();
         for (final Issue issue : issues) {
             final JsonObject flatten = issue.getFlatten(expandJsonOnGuess);
             final JsonObject unified = new JsonObject();
@@ -210,21 +227,16 @@ public class JiraInputPlugin
                 }
                 unified.add(key, value);
             }
-            samples.add(unified);
+            samples.add(JiraUtil.toLinkedHashMap(unified));
         }
         return samples;
     }
 
     @VisibleForTesting
-    public GuessExecutor getGuessExecutor()
-    {
-        return Exec.getInjector().getInstance(GuessExecutor.class);
-    }
-
-    @VisibleForTesting
+    @SuppressWarnings("deprecation") // TODO: For compatibility with Embulk v0.9
     public PageBuilder getPageBuilder(final Schema schema, final PageOutput output)
     {
-        return new PageBuilder(Exec.getBufferAllocator(), schema, output);
+        return new PageBuilder(Exec.getBufferAllocator(), schema, output); // TODO: Use Exec#getPageBuilder
     }
 
     @VisibleForTesting
@@ -238,4 +250,7 @@ public class JiraInputPlugin
     {
         return new JiraClient();
     }
+    @Override
+    public void cleanup(final TaskSource taskSource, final Schema schema, final int taskCount, final List<TaskReport> successTaskReports)
+    {}
 }
