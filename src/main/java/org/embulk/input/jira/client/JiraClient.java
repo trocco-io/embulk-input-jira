@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
@@ -64,11 +65,18 @@ public class JiraClient
         }
     }
 
-    public List<Issue> searchIssues(final PluginTask task, final int startAt, final int maxResults)
+    public Pair<List<Issue>, String> searchIssues(final PluginTask task, final String nextPageToken, final int maxResults)
     {
-        final String response = searchJiraAPI(task, startAt, maxResults);
+        final String response = searchJiraAPI(task, nextPageToken, maxResults);
         final JsonObject result = new JsonParser().parse(response).getAsJsonObject();
-        return StreamSupport.stream(result.get("issues").getAsJsonArray().spliterator(), false)
+        final JsonElement newNextPageTokenJson = result.get("nextPageToken");
+        final String newNextPageToken;
+        if (newNextPageTokenJson == null) {
+            newNextPageToken = null;
+        } else {
+            newNextPageToken = newNextPageTokenJson.getAsString();
+        }
+        final List<Issue> issues = StreamSupport.stream(result.get("issues").getAsJsonArray().spliterator(), false)
                             .map(jsonElement -> {
                                 final JsonObject json = jsonElement.getAsJsonObject();
                                 final JsonObject fields = json.get("fields").getAsJsonObject();
@@ -81,14 +89,10 @@ public class JiraClient
                                 return new Issue(json);
                             })
                             .collect(Collectors.toList());
+        return Pair.of(issues, newNextPageToken);
     }
 
-    public int getTotalCount(final PluginTask task)
-    {
-        return new JsonParser().parse(searchJiraAPI(task, 0, MIN_RESULTS)).getAsJsonObject().get("total").getAsInt();
-    }
-
-    private String searchJiraAPI(final PluginTask task, final int startAt, final int maxResults)
+    private String searchJiraAPI(final PluginTask task, final String nextPageToken, final int maxResults)
     {
         try {
             return RetryExecutor.builder()
@@ -101,7 +105,7 @@ public class JiraClient
                 @Override
                 public String call() throws Exception
                 {
-                    return authorizeAndRequest(task, JiraUtil.buildSearchUrl(task.getUri()), createSearchIssuesBody(task, startAt, maxResults));
+                    return authorizeAndRequest(task, JiraUtil.buildSearchUrl(task.getUri()), createSearchIssuesBody(task, nextPageToken, maxResults));
                 }
 
                 @Override
@@ -243,21 +247,22 @@ public class JiraClient
         return request;
     }
 
-    private String createSearchIssuesBody(final PluginTask task, final int startAt, final int maxResults)
+    private String createSearchIssuesBody(final PluginTask task, final String nextPageToken, final int maxResults)
     {
         final JsonObject body = new JsonObject();
         final Optional<String> jql = task.getJQL();
         body.add("jql", new JsonPrimitive(jql.orElse("")));
-        body.add("startAt", new JsonPrimitive(startAt));
+        if (nextPageToken != null) {
+            body.add("nextPageToken", new JsonPrimitive(nextPageToken));
+        }
         body.add("maxResults", new JsonPrimitive(maxResults));
         final JsonArray fields = new JsonArray();
         fields.add("*all");
         body.add("fields", fields);
-        final JsonArray expand = new JsonArray();
-        task.getExpand().forEach(e -> {
-            expand.add(e);
-        });
-        body.add("expand", expand);
+        final String expands = task.getExpand().stream().collect(Collectors.joining(","));
+        if (!expands.isEmpty()) {
+            body.add("expand", new JsonPrimitive(expands));
+        }
         return body.toString();
     }
 }
