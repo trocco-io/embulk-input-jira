@@ -1,3 +1,30 @@
+## 0.3.1 - 2023-05-19
+* [enhancement] Update library, minor code refactoring
+* PR [#78](https://github.com/treasure-data/embulk-input-jira/pull/78)
+
+## 0.2.15 - 2022-05-23
+* [enhancement] Catchup with embulk v0.10.32
+* PR [#71](https://github.com/treasure-data/embulk-input-jira/pull/71)
+
+## 0.2.14 - 2021-10-12
+* [enhancement] Graceful exit in case no data of dynamic schema
+* PR [#70](https://github.com/treasure-data/embulk-input-jira/pull/70)
+
+## 0.2.13 - 2021-09-30
+* [enhancement] Support dynamic schema
+* PR [#69](https://github.com/treasure-data/embulk-input-jira/pull/69)
+
+## 0.2.12 - 2021-08-24
+* [enhancement] Mordernized with embulk v0.10.x styles
+* [enhancement] Use embulk-guess-util
+* [enhancement] Remove internal jruby guess plugin
+
+## 0.2.11 - 2020-11-12
+
+* [enhancement] Apply Embulk Gradle plugin.
+* [enhancement] Apply embulk-util-config for config loading.
+* [enhancement] Upgrade Embulk to v0.10.19, along with necessary refactors.
+
 ## 0.2.10 - 2020-03-18
 
 * [enhancement] Use `java.util.Optional` instead of `com.google.common.base.Optional`, use `LoggerFactory.getLogger` instead of `Exec.getLogger` [#58](https://github.com/treasure-data/embulk-input-jira/pull/58)
