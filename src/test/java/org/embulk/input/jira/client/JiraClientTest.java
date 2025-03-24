@@ -2,6 +2,7 @@ package org.embulk.input.jira.client;
 
 import com.google.gson.JsonObject;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.http.StatusLine;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.entity.StringEntity;
@@ -125,73 +126,6 @@ public class JiraClientTest
     }
 
     @Test
-    public void test_getTotalCount_success() throws IOException
-    {
-        String dataName =  "totalCountSuccess";
-        JsonObject messageResponse = data.get(dataName).getAsJsonObject();
-        int statusCode = messageResponse.get("statusCode").getAsInt();
-        String body = messageResponse.get("body").toString();
-
-        when(statusLine.getStatusCode()).thenReturn(statusCode);
-        when(response.getEntity()).thenReturn(new StringEntity(body));
-
-        int totalCount = jiraClient.getTotalCount(task);
-        assertEquals(totalCount, messageResponse.get("body").getAsJsonObject().get("total").getAsInt());
-    }
-
-    @Test
-    public void test_getTotalCount_failOnRetry() throws IOException
-    {
-        String dataName =  "totalCountFailAllTime";
-        JsonObject messageResponse = data.get(dataName).getAsJsonObject();
-        int statusCode = messageResponse.get("statusCode").getAsInt();
-        String body = messageResponse.get("body").toString();
-
-        when(statusLine.getStatusCode()).thenReturn(statusCode);
-        when(response.getEntity()).thenReturn(new StringEntity(body));
-
-        assertThrows(RuntimeException.class, () -> jiraClient.getTotalCount(task));
-
-        // First try + 3 retry_limit
-        int expectedInvocation = 3 + 1;
-        verify(jiraClient, times(expectedInvocation)).createHttpClient();
-        verify(statusLine, times(expectedInvocation)).getStatusCode();
-    }
-
-    @Test
-    public void test_getTotalCount_doNotRetryOn400Status() throws IOException
-    {
-        String dataName =  "totalCountFail400";
-        JsonObject messageResponse = data.get(dataName).getAsJsonObject();
-        int statusCode = messageResponse.get("statusCode").getAsInt();
-        String body = messageResponse.get("body").toString();
-
-        when(statusLine.getStatusCode()).thenReturn(statusCode);
-        when(response.getEntity()).thenReturn(new StringEntity(body));
-
-        assertThrows(RuntimeException.class, () -> jiraClient.getTotalCount(task));
-
-        // No retry
-        int expectedInvocation = 1;
-        verify(jiraClient, times(expectedInvocation)).createHttpClient();
-        verify(statusLine, times(expectedInvocation)).getStatusCode();
-    }
-
-    @Test
-    public void test_getTotalCount_retryOnIOException() throws IOException
-    {
-        when(client.execute(Mockito.any())).thenThrow(new IOException("test exeception"));
-
-        assertThrows(RuntimeException.class, () -> jiraClient.getTotalCount(task));
-
-        // First try + 3 retry_limit
-        int expectedInvocation = 3 + 1;
-        verify(jiraClient, times(expectedInvocation)).createHttpClient();
-        // getStatusCode is not triggered
-        verify(statusLine, times(0)).getStatusCode();
-    }
-
-    @Test
     public void test_searchIssues() throws IOException
     {
         String dataName =  "searchIssuesSuccess";
@@ -203,7 +137,8 @@ public class JiraClientTest
         when(statusLine.getStatusCode()).thenReturn(statusCode);
         when(response.getEntity()).thenReturn(new StringEntity(body));
 
-        List<Issue> issues = jiraClient.searchIssues(task, 0, 50);
+        Pair<List<Issue>, String> result = jiraClient.searchIssues(task, null, 50);
+        List<Issue> issues = result.getLeft();
         assertEquals(issues.size(), 2);
     }
 
@@ -219,7 +154,7 @@ public class JiraClientTest
         when(statusLine.getStatusCode()).thenReturn(statusCode);
         when(response.getEntity()).thenReturn(new StringEntity(body));
 
-        assertThrows(ConfigException.class, () -> jiraClient.searchIssues(task, 0, 50));
+        assertThrows(ConfigException.class, () -> jiraClient.searchIssues(task, null, 50));
     }
 
     @Test
@@ -236,13 +171,15 @@ public class JiraClientTest
         ConfigSource config = TestHelpers.config().remove("jql");
         task = CONFIG_MAPPER.map(config, PluginTask.class);
 
-        List<Issue> issues = jiraClient.searchIssues(task, 0, 50);
+        Pair<List<Issue>, String> result = jiraClient.searchIssues(task, null, 50);
+        List<Issue> issues = result.getLeft();
         assertEquals(issues.size(), 2);
 
         config = TestHelpers.config().set("jql", "");
         task = CONFIG_MAPPER.map(config, PluginTask.class);
 
-        issues = jiraClient.searchIssues(task, 0, 50);
+        result = jiraClient.searchIssues(task, null, 50);
+        issues = result.getLeft();
         assertEquals(issues.size(), 2);
     }
 }
