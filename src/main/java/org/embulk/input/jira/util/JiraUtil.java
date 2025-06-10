@@ -273,6 +273,9 @@ public final class JiraUtil
             if (elem.isJsonPrimitive()) {
                 result.put(key, flt.get(key).getAsString());
             }
+            else if(elem.isJsonNull()) {
+                result.put(key, null);
+            }
             else {
                 result.put(key, elem);
             }

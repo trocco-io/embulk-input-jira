@@ -52,7 +52,7 @@ dependencies {
     }
     compile('org.embulk:embulk-util-retryhelper-jetty92:0.8.2')
     compile 'org.embulk:embulk-util-timestamp:0.2.1'
-    compile('org.embulk:embulk-util-guess:0.1.2')
+    compile('org.embulk:embulk-util-guess:0.2.0')
 
     compile('org.embulk:embulk-util-json:0.1.1') {
         exclude group: 'com.fasterxml.jackson.core', module: 'jackson-core'
