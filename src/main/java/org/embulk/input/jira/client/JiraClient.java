@@ -30,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
@@ -225,7 +226,7 @@ public class JiraClient
             request.setHeader(CONTENT_TYPE, "application/json");
             break;
         }
-        request.setEntity(new StringEntity(body));
+        request.setEntity(new StringEntity(body, StandardCharsets.UTF_8));
         return request;
     }
 

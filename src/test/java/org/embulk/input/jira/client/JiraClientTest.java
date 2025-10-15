@@ -182,4 +182,26 @@ public class JiraClientTest
         issues = result.getLeft();
         assertEquals(issues.size(), 2);
     }
+
+    @Test
+    public void test_searchIssues_withJapaneseJql() throws IOException
+    {
+        String dataName = "searchIssuesWithJapaneseJql";
+        JsonObject messageResponse = data.get(dataName).getAsJsonObject();
+
+        int statusCode = messageResponse.get("statusCode").getAsInt();
+        String body = messageResponse.get("body").toString();
+
+        when(statusLine.getStatusCode()).thenReturn(statusCode);
+        when(response.getEntity()).thenReturn(new StringEntity(body, "UTF-8"));
+
+        ConfigSource config = TestHelpers.config().set("jql", "labels=\"テスト\"");
+        task = CONFIG_MAPPER.map(config, PluginTask.class);
+
+        Pair<List<Issue>, String> result = jiraClient.searchIssues(task, null, 50);
+        List<Issue> issues = result.getLeft();
+        assertEquals(1, issues.size());
+        assertEquals("TEST-1", issues.get(0).getValue("key").getAsString());
+        assertEquals("テスト", issues.get(0).getValue("string").getAsString());
+    }
 }
