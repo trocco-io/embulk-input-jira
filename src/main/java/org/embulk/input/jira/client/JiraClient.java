@@ -223,7 +223,7 @@ public class JiraClient
                                 task.getUsername(),
                                 task.getPassword()).getBytes())));
             request.setHeader(ACCEPT, "application/json");
-            request.setHeader(CONTENT_TYPE, "application/json");
+            request.setHeader(CONTENT_TYPE, "application/json; charset=UTF-8");
             break;
         }
         request.setEntity(new StringEntity(body, StandardCharsets.UTF_8));
